@@ -30,7 +30,6 @@ holiday_ranges = [
 ]
 
 # ============ FUNCTIONS ============
-
 def expand_holidays(ranges):
     holidays = set()
     for start, end in ranges:
@@ -99,7 +98,7 @@ def max_bunks(attended, held, future):
     return max(0, math.floor(attended + future - 0.75 * total))
 
 # ============ STREAMLIT APP ============
-st.set_page_config(page_title="Attendance Tracker", page_icon="")
+st.set_page_config(page_title="Attendance Tracker", page_icon="📊")
 st.markdown("### 👁️ Page Visits")
 st.components.v1.html('''
 <div align="center">
@@ -136,9 +135,13 @@ for subject in subjects:
         st.info(f"🔹 {percent}% → counted as {estimated} out of {held} ({actual_percent:.2f}%)")
         attendance_data[subject] = estimated
 
-# Generate Report
+# Attendance Report
+show_extras = False
 if st.button("Generate Attendance Report"):
-    st.header("Attendance Report")
+    show_extras = True
+    st.header("📊 Attendance Report")
+    subject_results = {}
+
     for subject in subjects:
         result = compute_subject_attendance(
             subject,
@@ -146,6 +149,7 @@ if st.button("Generate Attendance Report"):
             future_counts.get(subject, 0),
             attendance_data[subject]
         )
+        subject_results[subject] = result
 
         st.subheader(f"{subject}")
         st.write(f"**Classes held:** {result['held']}")
@@ -166,71 +170,89 @@ if st.button("Generate Attendance Report"):
             )
             if date_needed:
                 st.warning(f"You must attend the next {num_needed} classes to reach 75% by **{date_needed.strftime('%A, %d %B %Y')}**.")
-            else:
-                st.error("Even attending all classes won't help you reach 75%.")
 
-# Projected Attendance Line Plot
-st.header("📈 Projected Attendance Scenario")
-future_plan = st.slider("If you attend __%__ of future classes", 0, 100, 75)
+# 📈 Projected Attendance — Per Subject
+if show_extras:
+    st.header("📈 Projected Attendance for Selected Subject")
+    selected_subject = st.selectbox("Select a subject", subjects)
+    slider_val = st.slider(f"If you attend __%__ of remaining classes for {selected_subject}", 0, 100, 75)
 
-projection_data = []
-for subject in subjects:
-    held = past_counts[subject]
-    future = future_counts[subject]
-    attended = attendance_data[subject]
-    total_future = (future_plan / 100) * future
-    total = held + future
-    projected_attended = attended + total_future
-    projected_percent = (projected_attended / total * 100) if total > 0 else 0
-    projection_data.append({
-        "Subject": subject,
-        "Projected %": round(projected_percent, 2)
+    past = past_counts[selected_subject]
+    future = future_counts[selected_subject]
+    attended = attendance_data[selected_subject]
+    future_attend = (slider_val / 100) * future
+    total = past + future
+    projected = (attended + future_attend) / total * 100 if total > 0 else 0
+
+    df_proj = pd.DataFrame({
+        "Type": ["Current %", "Projected %"],
+        "Value": [round((attended / past * 100), 2) if past > 0 else 0, round(projected, 2)]
     })
 
-proj_df = pd.DataFrame(projection_data)
-st.altair_chart(
-    alt.Chart(proj_df).mark_bar().encode(
-        x="Subject",
-        y="Projected %",
-        color=alt.condition(
-            alt.datum["Projected %"] >= 75,
-            alt.value("seagreen"), alt.value("orangered")
-        )
-    ).properties(height=350),
-    use_container_width=True
-)
+    st.altair_chart(
+        alt.Chart(df_proj).mark_bar().encode(
+            x="Type",
+            y="Value",
+            color=alt.condition(
+                alt.datum.Value >= 75,
+                alt.value("seagreen"),
+                alt.value("orangered")
+            )
+        ).properties(height=300),
+        use_container_width=True
+    )
 
-# Bunk Recommender
-st.header("🟢 Bunk Day Recommender (Safe Picks Only)")
-safe_days = []
+# 🟢 Bunk Day Recommender
+if show_extras:
+    st.header("🟢 Strategic Bunk Day Recommender")
 
-for day, subjects_on_day in class_schedule:
-    if day <= today:
-        continue
-    if not subjects_on_day:
-        continue
+    best_day = None
+    best_attendance = None
 
-    is_safe = True
-    for subj in subjects_on_day:
-        att = attendance_data[subj]
-        held = past_counts[subj]
-        future = future_counts[subj]
-        total = held + future
-        if (att + future - 1) / total < 0.75:
-            is_safe = False
+    for day, subjects_on_day in class_schedule:
+        if day <= today or not subjects_on_day or day.weekday() == 6 or day in holidays:
+            continue
+
+        temp_results = {}
+        safe = True
+        for subj in subjects:
+            held = past_counts[subj]
+            future = future_counts[subj]
+            attended = attendance_data[subj]
+            loss = subjects_on_day.count(subj) if subj in subjects_on_day else 0
+
+            new_held = held
+            new_future = future - loss
+            new_attended = attended
+            new_total = new_held + new_future
+            new_percent = (new_attended / new_held * 100) if new_held else 0
+
+            if new_total > 0 and (new_attended / new_total) < 0.75:
+                safe = False
+                break
+
+            temp_results[subj] = (new_attended, new_total)
+
+        if safe:
+            best_day = day
+            best_attendance = temp_results
             break
 
-    if is_safe:
-        safe_days.append(day.strftime("%A, %d %B"))
+    if best_day:
+        st.success(f"✅ Safest upcoming bunk day: {best_day.strftime('%A, %d %B %Y')}")
+        st.write("📉 Your attendance would become:")
+        for subj in subjects:
+            held = past_counts[subj]
+            future = future_counts[subj]
+            attended = attendance_data[subj]
+            loss = weekly_timetable[best_day.strftime("%A")].count(subj)
+            new_total = held + future - loss
+            new_percent = (attended / new_total * 100) if new_total > 0 else 0
+            st.write(f"🔹 **{subj}** → {new_percent:.2f}%")
+    else:
+        st.info("No completely safe bunk days found based on current data.")
 
-if safe_days:
-    st.write("You can safely bunk on:")
-    for d in safe_days[:5]:
-        st.success(f"✅ {d}")
-else:
-    st.info("No completely safe bunk days based on current data.")
-
-# Feedback box
+# 📬 Anonymous Feedback
 st.header("📬 Anonymous Feedback")
 feedback = st.text_area("Have suggestions, bugs, or anything to say?")
 if st.button("Submit Feedback"):
