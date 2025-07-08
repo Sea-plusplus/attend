@@ -171,34 +171,49 @@ if st.button("Generate Attendance Report"):
             if date_needed:
                 st.warning(f"You must attend the next {num_needed} classes to reach 75% by **{date_needed.strftime('%A, %d %B %Y')}**.")
 
-# 📈 Projected Attendance — Per Subject
+# 📈 Projected Attendance
+# 📈 Projected Attendance — All Subjects
 if show_extras:
-    st.header("📈 Projected Attendance for Selected Subject")
-    selected_subject = st.selectbox("Select a subject", subjects)
-    slider_val = st.slider(f"If you attend __%__ of remaining classes for {selected_subject}", 0, 100, 75)
+    st.header("📈 Projected Attendance (per subject)")
 
-    past = past_counts[selected_subject]
-    future = future_counts[selected_subject]
-    attended = attendance_data[selected_subject]
-    future_attend = (slider_val / 100) * future
-    total = past + future
-    projected = (attended + future_attend) / total * 100 if total > 0 else 0
+    projected_data = []
+    st.write("Enter how many future classes you think you'll attend for each subject (as count or estimated percentage).")
 
-    df_proj = pd.DataFrame({
-        "Type": ["Current %", "Projected %"],
-        "Value": [round((attended / past * 100), 2) if past > 0 else 0, round(projected, 2)]
-    })
+    for subj in subjects:
+        st.subheader(f"{subj}")
+        future_classes = future_counts[subj]
+        input_mode = st.radio(f"Input mode for {subj}", ["Classes (count)", "Estimated %"], key=f"projmode_{subj}")
+
+        if input_mode == "Classes (count)":
+            projected_attend = st.number_input(f"Projected future classes to attend for {subj} (out of {future_classes})", 0, future_classes, key=f"projcount_{subj}")
+        else:
+            proj_percent = st.slider(f"Projected future attendance for {subj} (%)", 0, 100, 75, key=f"projperc_{subj}")
+            projected_attend = math.floor((proj_percent / 100) * future_classes)
+            st.info(f"🔹 {proj_percent}% → counted as {projected_attend} out of {future_classes}")
+
+        past = past_counts[subj]
+        attended = attendance_data[subj]
+        total_future = projected_attend
+        total_classes = past + future_classes
+        projected_percent = ((attended + total_future) / total_classes) * 100 if total_classes > 0 else 0
+
+        projected_data.append({
+            "Subject": subj,
+            "Projected Attendance %": round(projected_percent, 2)
+        })
+
+    # Plot
+    df_proj = pd.DataFrame(projected_data)
 
     st.altair_chart(
         alt.Chart(df_proj).mark_bar().encode(
-            x="Type",
-            y="Value",
+            x="Subject",
+            y="Projected Attendance %",
             color=alt.condition(
-                alt.datum.Value >= 75,
-                alt.value("seagreen"),
-                alt.value("orangered")
+                alt.datum["Projected Attendance %"] >= 75,
+                alt.value("seagreen"), alt.value("orangered")
             )
-        ).properties(height=300),
+        ).properties(height=350),
         use_container_width=True
     )
 
