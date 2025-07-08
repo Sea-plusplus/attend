@@ -102,6 +102,12 @@ def max_bunks(attended, held, future):
     return max(0, math.floor(attended + future - 0.75 * total))
 
 # ============ STREAMLIT APP ============
+st.markdown("### 👁️ Page Visits")
+st.components.v1.html('''
+<div align="center">
+    <img src="https://hitwebcounter.com/counter/counter.php?page=1234567&style=0025&nbdigits=5&type=page&initCount=0" title="Web Counter" Alt="web counter" border="0" >
+</div>
+''', height=80)
 
 st.set_page_config(page_title="Attendance Tracker", page_icon="")
 st.title("Attendance Tracker")
@@ -166,3 +172,69 @@ if st.button("Generate Attendance Report"):
             else:
                 st.error(" Even attending all classes won't help you reach 75%.")
 
+# Projected Attendance Line Plot
+st.header("📈 Projected Attendance Scenario")
+future_plan = st.slider("If you attend __%__ of future classes", 0, 100, 75)
+
+import altair as alt
+projection_data = []
+
+for subject in subjects:
+    held = past_counts[subject]
+    future = future_counts[subject]
+    attended = attendance_data[subject]
+    total_future = (future_plan / 100) * future
+    total = held + future
+    projected_attended = attended + total_future
+    projected_percent = (projected_attended / total * 100) if total > 0 else 0
+    projection_data.append({
+        "Subject": subject,
+        "Projected %": round(projected_percent, 2)
+    })
+
+proj_df = pd.DataFrame(projection_data)
+st.altair_chart(
+    alt.Chart(proj_df).mark_bar().encode(
+        x="Subject",
+        y="Projected %",
+        color=alt.condition(
+            alt.datum["Projected %"] >= 75,
+            alt.value("seagreen"), alt.value("orangered")
+        )
+    ).properties(height=350),
+    use_container_width=True
+)
+st.header("🟢 Bunk Day Recommender (Safe Picks Only)")
+safe_days = []
+
+for day, subjects_on_day in class_schedule:
+    if day <= today:
+        continue
+    if not subjects_on_day:
+        continue
+
+    is_safe = True
+    for subj in subjects_on_day:
+        att = attendance_data[subj]
+        held = past_counts[subj]
+        future = future_counts[subj]
+        total = held + future
+        if (att + future - 1) / total < 0.75:
+            is_safe = False
+            break
+
+    if is_safe:
+        safe_days.append(day.strftime("%A, %d %B"))
+
+if safe_days:
+    st.write("You can safely bunk on:")
+    for d in safe_days[:5]:
+        st.success(f"✅ {d}")
+else:
+    st.info("No completely safe bunk days based on current data.")
+st.header("📬 Anonymous Feedback")
+feedback = st.text_area("Have suggestions, bugs, or anything to say?")
+if st.button("Submit Feedback"):
+    with open("feedback_log.txt", "a") as f:
+        f.write(f"{date.today()} - {feedback}\n")
+    st.success("Thanks! Feedback submitted anonymously.")
