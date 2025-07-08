@@ -6,7 +6,7 @@ from collections import defaultdict, Counter
 # ============ CONFIGURATION ============
 start_date = date(2025, 7, 14)
 end_date = date(2025, 10, 30)
-today = date(2025, 8, 17)  # set to fixed date for testing
+today = date.today()
 
 weekly_timetable = {
     "Monday":    ["Math", "Physics"],
@@ -28,6 +28,7 @@ holiday_ranges = [
 ]
 
 # ============ FUNCTIONS ============
+
 def expand_holidays(ranges):
     holidays = set()
     for start, end in ranges:
@@ -44,16 +45,19 @@ def get_working_days(start, end, holidays):
 def build_class_schedule(working_days, timetable):
     weekday_map = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
     all_classes = []
+
     for day in working_days:
         weekday_name = weekday_map[day.weekday()]
         subjects = timetable.get(weekday_name, [])
         all_classes.append((day, subjects))
+    
     return all_classes
 
 def count_subjects_per_period(class_schedule):
     past_counts = Counter()
     future_counts = Counter()
     future_dates = defaultdict(list)
+
     for day, subjects in class_schedule:
         for subj in subjects:
             if day <= today:
@@ -61,6 +65,7 @@ def count_subjects_per_period(class_schedule):
             else:
                 future_counts[subj] += 1
                 future_dates[subj].append(day)
+
     return past_counts, future_counts, future_dates
 
 def compute_subject_attendance(subject, past, future, attended):
@@ -72,6 +77,7 @@ def compute_subject_attendance(subject, past, future, attended):
     needed = max(0, math.ceil(required_total - A))
     current_percent = (A / T * 100) if T > 0 else 0
     can_reach = needed <= F
+
     return {
         "held": T,
         "attended": A,
@@ -95,74 +101,41 @@ def max_bunks(attended, held, future):
     total = held + future
     return max(0, math.floor(attended + future - 0.75 * total))
 
-# ============ STYLED STREAMLIT UI ============
-st.set_page_config(page_title="Attendance Terminal", layout="centered")
+# ============ STREAMLIT APP ============
 
-st.markdown("""
-    <style>
-    body {
-        background-color: #000;
-        color: #00FF99;
-        font-family: monospace;
-    }
-    .report-box {
-        background: #111;
-        border: 1px solid #0f0;
-        padding: 1em;
-        margin-bottom: 1.5em;
-        border-radius: 5px;
-        box-shadow: 0 0 10px #0f0a;
-    }
-    .ascii-header {
-        color: #0f0;
-        font-family: monospace;
-        white-space: pre;
-        font-size: 12px;
-    }
-    .badge-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 5px;
-        justify-content: center;
-        margin-top: 1em;
-    }
-    .badge-grid img {
-        image-rendering: pixelated;
-        height: 31px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Attendance Tracker", page_icon="")
+st.title("Attendance Tracker")
+st.write("Enter attendance for each subject to see whether you're safe or at risk.")
 
-st.markdown("""
-<div class="ascii-header">
-    ___________  ___________________  _______
-==== 4C 45 54 / ___       |/    __  / /    _   |/    __/ 4C 4F 56 ====
-=/=/=/=/=/ 53 20 41 /__  /  /  , ' /  __/ / / /  _  | ' /  __/ 45 20 4C /=/=/=/=/=
-==== 4C 4C 20 /____/__/__/|__/____/_____/__/__/|__/____/ 41 49 4E ====
-
-   ==// WELCOME, USER //======// YOU ARE SAFE HERE //==
-</div>
-""", unsafe_allow_html=True)
-
+# Generate class data
 holidays = expand_holidays(holiday_ranges)
 working_days = get_working_days(start_date, end_date, holidays)
 class_schedule = build_class_schedule(working_days, weekly_timetable)
 past_counts, future_counts, future_dates = count_subjects_per_period(class_schedule)
 subjects = sorted(set(past_counts) | set(future_counts))
 
-st.header("Input Attendance")
+# Attendance Input
+st.header("Attendance Input")
 attendance_data = {}
+
 for subject in subjects:
     st.subheader(f"{subject}")
-    mode = st.radio("Input mode", ["Count", "%"], key=f"{subject}_mode")
+    input_mode = st.radio(f"Input mode for {subject}", ["Classes attended", "Estimated percentage"], key=f"{subject}_mode")
     held = past_counts.get(subject, 0)
-    if mode == "%":
-        percent = st.slider(f"Estimated % for {subject}", 0, 100, 0, 1)
-        attendance_data[subject] = math.floor((percent/100)*held)
-    else:
-        attendance_data[subject] = st.number_input(f"Attended for {subject}", min_value=0, step=1, key=f"{subject}_count")
 
-if st.button("Generate Report"):
+    if input_mode == "Classes attended":
+        count = st.number_input(f"Classes attended for {subject}", min_value=0, step=1, key=f"{subject}_count")
+        attendance_data[subject] = int(count)
+    else:
+        percent = st.slider(f"Estimated attendance (%) for {subject}", 0, 100, step=1, key=f"{subject}_percent")
+        estimated = math.floor((percent / 100) * held)
+        actual_percent = (estimated / held * 100) if held else 0
+        st.info(f"🔹 {percent}% → counted as {estimated} out of {held} ({actual_percent:.2f}%)")
+        attendance_data[subject] = estimated
+
+# Generate Report
+if st.button("Generate Attendance Report"):
+    st.header("Attendance Report")
     for subject in subjects:
         result = compute_subject_attendance(
             subject,
@@ -170,40 +143,26 @@ if st.button("Generate Report"):
             future_counts.get(subject, 0),
             attendance_data[subject]
         )
-        st.markdown(f"""
-        <div class=\"report-box\">
-        <b>Subject:</b> {subject}<br>
-        Classes held: {result['held']}<br>
-        Classes attended: {result['attended']}<br>
-        Current %: {result['percent']:.2f}%<br>
-        Future classes: {result['future']}<br>
-        Must attend: {result['needed']}<br>
-        """, unsafe_allow_html=True)
+
+        st.subheader(f"{subject}")
+        st.write(f"**Classes held:** {result['held']}")
+        st.write(f"**Classes attended:** {result['attended']}")
+        st.write(f"**Current percentage:** {result['percent']:.2f}%")
+        st.write(f"**Future classes:** {result['future']}")
+        st.write(f"**Must attend:** {result['needed']} (to not be detained)")
 
         if result['percent'] >= 75:
+            st.success("You are currently above 75%. No further classes required.")
             bunks = max_bunks(result['attended'], result['held'], result['future'])
-            st.markdown(f"✅ You are safe. You can miss {bunks} more classes.</div>", unsafe_allow_html=True)
+            st.info(f"You can afford to miss {bunks} classes before falling below 75%.")
         elif not result["can_reach"]:
-            st.markdown("❌ Cannot reach 75% even with full attendance.</div>", unsafe_allow_html=True)
+            st.error("You cannot reach 75% even if you attend all remaining classes.")
         else:
-            needed, day = find_earliest_75(result['attended'], result['held'], future_dates[subject])
-            st.markdown(f"⚠️ Attend next {needed} to reach 75% by {day.strftime('%A, %d %B %Y')}</div>", unsafe_allow_html=True)
-
-st.markdown("""
-<div style='margin-top: 3em; text-align: center; color: #0f0;'>
-    Present day, Present time — 2025<br>
-    <a href="https://github.com/adryd325/oneko.js" style="color:#0f0; text-decoration:none">oneko.js by adryd325</a>
-    <div class='badge-grid'>
-        <img src='https://sinewave.cyou/cdn/badges/sinewave.gif'>
-        <img src='https://sinewave.cyou/cdn/badges/eggbug.gif'>
-        <img src='https://sinewave.cyou/cdn/badges/versarytown.png'>
-        <img src='https://sinewave.cyou/cdn/badges/oatzone.gif'>
-        <img src='https://sinewave.cyou/cdn/badges/maia.png'>
-        <img src='https://sinewave.cyou/cdn/badges/void.gif'>
-        <img src='https://sinewave.cyou/cdn/badges/noweb3.gif'>
-        <img src='https://sinewave.cyou/cdn/badges/neovim.gif'>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
+            num_needed, date_needed = find_earliest_75(
+                result['attended'], result['held'], future_dates[subject]
+            )
+            if date_needed:
+                st.warning(f"You must attend the next {num_needed} classes to reach 75% by **{date_needed.strftime('%A, %d %B %Y')}**.")
+            else:
+                st.error(" Even attending all classes won't help you reach 75%.")
 
