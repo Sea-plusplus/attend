@@ -1,6 +1,8 @@
 import streamlit as st
-from datetime import date, timedelta
+import pandas as pd
+import altair as alt
 import math
+from datetime import date, timedelta
 from collections import defaultdict, Counter
 
 # ============ CONFIGURATION ============
@@ -45,19 +47,16 @@ def get_working_days(start, end, holidays):
 def build_class_schedule(working_days, timetable):
     weekday_map = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
     all_classes = []
-
     for day in working_days:
         weekday_name = weekday_map[day.weekday()]
         subjects = timetable.get(weekday_name, [])
         all_classes.append((day, subjects))
-    
     return all_classes
 
 def count_subjects_per_period(class_schedule):
     past_counts = Counter()
     future_counts = Counter()
     future_dates = defaultdict(list)
-
     for day, subjects in class_schedule:
         for subj in subjects:
             if day <= today:
@@ -65,7 +64,6 @@ def count_subjects_per_period(class_schedule):
             else:
                 future_counts[subj] += 1
                 future_dates[subj].append(day)
-
     return past_counts, future_counts, future_dates
 
 def compute_subject_attendance(subject, past, future, attended):
@@ -77,7 +75,6 @@ def compute_subject_attendance(subject, past, future, attended):
     needed = max(0, math.ceil(required_total - A))
     current_percent = (A / T * 100) if T > 0 else 0
     can_reach = needed <= F
-
     return {
         "held": T,
         "attended": A,
@@ -102,6 +99,7 @@ def max_bunks(attended, held, future):
     return max(0, math.floor(attended + future - 0.75 * total))
 
 # ============ STREAMLIT APP ============
+st.set_page_config(page_title="Attendance Tracker", page_icon="")
 st.markdown("### 👁️ Page Visits")
 st.components.v1.html('''
 <div align="center">
@@ -109,7 +107,6 @@ st.components.v1.html('''
 </div>
 ''', height=80)
 
-st.set_page_config(page_title="Attendance Tracker", page_icon="")
 st.title("Attendance Tracker")
 st.write("Enter attendance for each subject to see whether you're safe or at risk.")
 
@@ -170,15 +167,13 @@ if st.button("Generate Attendance Report"):
             if date_needed:
                 st.warning(f"You must attend the next {num_needed} classes to reach 75% by **{date_needed.strftime('%A, %d %B %Y')}**.")
             else:
-                st.error(" Even attending all classes won't help you reach 75%.")
+                st.error("Even attending all classes won't help you reach 75%.")
 
 # Projected Attendance Line Plot
 st.header("📈 Projected Attendance Scenario")
 future_plan = st.slider("If you attend __%__ of future classes", 0, 100, 75)
 
-import altair as alt
 projection_data = []
-
 for subject in subjects:
     held = past_counts[subject]
     future = future_counts[subject]
@@ -204,6 +199,8 @@ st.altair_chart(
     ).properties(height=350),
     use_container_width=True
 )
+
+# Bunk Recommender
 st.header("🟢 Bunk Day Recommender (Safe Picks Only)")
 safe_days = []
 
@@ -232,6 +229,8 @@ if safe_days:
         st.success(f"✅ {d}")
 else:
     st.info("No completely safe bunk days based on current data.")
+
+# Feedback box
 st.header("📬 Anonymous Feedback")
 feedback = st.text_area("Have suggestions, bugs, or anything to say?")
 if st.button("Submit Feedback"):
