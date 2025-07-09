@@ -177,39 +177,57 @@ if st.button("📋 Generate Attendance Report"):
             else:
                 st.error("Even attending all classes won't help you reach 75%.")
 
-    # 🟢 Bunk Recommender
-    st.header("🟢 Bunk Day Recommender (Safe Picks Only)")
-    safe_days = []
+    # 🔄 Effect of Next Class or Next Week on Attendance %
+st.header("📈 Impact of Attending or Missing the Next Class/Week")
 
-    for day, subjects_on_day in class_schedule:
-        if day <= today or not subjects_on_day:
-            continue
+# Get the next 7 working days from today
+next_week_dates = [d for d in working_days if d > today][:7]
+week_classes = [timetable := weekly_timetable[day.strftime("%A")] for day in next_week_dates]
 
-        is_safe = True
-        sim_attendance = {}
+# Flatten subject counts for next week
+week_subjects = []
+for day in next_week_dates:
+    for subj in weekly_timetable.get(day.strftime("%A"), []):
+        week_subjects.append(subj)
 
-        for subj in subjects_on_day:
-            A = attendance_data[subj]
-            T = past_counts[subj]
-            F = future_counts[subj]
-            if F == 0:
-                continue
-            if (A + F - 1) / (T + F) < 0.75:
-                is_safe = False
-                break
-            sim_attendance[subj] = round((A + F - 1) / (T + F) * 100, 2)
+week_counter = Counter(week_subjects)
 
-        if is_safe:
-            safe_days.append((day, sim_attendance))
+for subject in subjects:
+    A = attendance_data[subject]
+    T = past_counts[subject]
+    F = future_counts[subject]
 
-    if safe_days:
-        st.write("You can safely bunk on:")
-        for day, subj_proj in safe_days[:5]:
-            st.success(f"✅ {day.strftime('%A, %d %B')}")
-            for subj, proj in subj_proj.items():
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📘 {subj}: `{proj}%` after bunk")
+    if F == 0:
+        continue
+
+    # === Effect of Next Class ===
+    next_attend = A + 1
+    next_total = T + 1
+    percent_attend = (next_attend / next_total * 100) if next_total > 0 else 0
+
+    next_bunk = A
+    percent_bunk = (next_bunk / next_total * 100) if next_total > 0 else 0
+
+    # === Effect of Next Week ===
+    n = week_counter.get(subject, 0)
+    week_attend = A + n
+    week_total = T + n
+    percent_week_attend = (week_attend / week_total * 100) if week_total > 0 else 0
+
+    week_bunk = A
+    percent_week_bunk = (week_bunk / week_total * 100) if week_total > 0 else 0
+
+    st.subheader(f"📚 {subject}")
+    st.write(f"➡️ **Next Class Impact**")
+    st.write(f"   ✅ If you attend: **{percent_attend:.2f}%**")
+    st.write(f"   ❌ If you miss: **{percent_bunk:.2f}%**")
+
+    if n > 0:
+        st.write(f"📅 **Next Week Impact** ({n} classes)")
+        st.write(f"   ✅ Attend all: **{percent_week_attend:.2f}%**")
+        st.write(f"   ❌ Miss all: **{percent_week_bunk:.2f}%**")
     else:
-        st.info("No completely safe bunk days based on current data.")
+        st.info(f"No {subject} classes scheduled next week.")
 
 # 📬 Anonymous Feedback
 st.header("📬 Anonymous Feedback")
